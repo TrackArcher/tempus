@@ -34,6 +34,7 @@ import com.cappielloantonio.tempo.equalizer.EqualizerBackend
 import com.cappielloantonio.tempo.equalizer.EqualizerManager
 import com.cappielloantonio.tempo.equalizer.ExternalBackend
 import com.cappielloantonio.tempo.equalizer.DefaultBackend
+import com.cappielloantonio.tempo.elzicy.ElzicyClient
 import com.cappielloantonio.tempo.repository.QueueRepository
 import com.cappielloantonio.tempo.ui.activity.MainActivity
 import com.cappielloantonio.tempo.util.*
@@ -144,6 +145,13 @@ open class BaseMediaService : MediaLibraryService() {
 
     private var lastRadioArtist: String? = null
     private var lastRadioTitle: String? = null
+    private var elzicyAcquired = false
+
+    private val elzicyTrackUpdateListener = ElzicyClient.TrackUpdateListener { stationName, trackTitle ->
+        widgetUpdateHandler.post {
+            applyElzicyTrackUpdate(stationName, trackTitle)
+        }
+    }
 
     fun initializePlayerListener(player: Player) {
         player.addListener(object : Player.Listener {
@@ -192,10 +200,19 @@ open class BaseMediaService : MediaLibraryService() {
                 // Restart header checks for radio streams when media item changes
                 val mediaType = mediaItem.mediaMetadata.extras?.getString("type")
                 if (mediaType == Constants.MEDIA_TYPE_RADIO && player.isPlaying) {
-                    stopRadioHeaderChecks()
-                    scheduleRadioHeaderChecks()
+                    lastRadioArtist = null
+                    lastRadioTitle = null
+                    if (Preferences.isElzicyConfigured()) {
+                        stopRadioHeaderChecks()
+                        startElzicyForRadio()
+                    } else {
+                        stopElzicyForRadio()
+                        stopRadioHeaderChecks()
+                        scheduleRadioHeaderChecks()
+                    }
                 } else if (mediaType != Constants.MEDIA_TYPE_RADIO) {
                     stopRadioHeaderChecks()
+                    stopElzicyForRadio()
                 }
 
                 updateWidget(player)
@@ -266,6 +283,7 @@ open class BaseMediaService : MediaLibraryService() {
                 val currentItem = player.currentMediaItem ?: return
                 val extras = currentItem.mediaMetadata.extras
                 if (extras?.getString("type") != Constants.MEDIA_TYPE_RADIO) return
+                if (Preferences.isElzicyConfigured()) return
 
                 var artist: String? = null
                 var title: String? = null
@@ -363,10 +381,17 @@ open class BaseMediaService : MediaLibraryService() {
                 }
                 if (isPlaying) {
                     scheduleWidgetUpdates()
-                    scheduleRadioHeaderChecks()
+                    val currentItem = player.currentMediaItem
+                    val mediaType = currentItem?.mediaMetadata?.extras?.getString("type")
+                    if (mediaType == Constants.MEDIA_TYPE_RADIO && Preferences.isElzicyConfigured()) {
+                        startElzicyForRadio()
+                    } else if (mediaType == Constants.MEDIA_TYPE_RADIO) {
+                        scheduleRadioHeaderChecks()
+                    }
                 } else {
                     stopWidgetUpdates()
                     stopRadioHeaderChecks()
+                    stopElzicyForRadio()
                 }
                 updateWidget(player)
             }
@@ -535,6 +560,7 @@ open class BaseMediaService : MediaLibraryService() {
         ReplayGainUtil.release()
         stopWidgetUpdates()
         stopRadioHeaderChecks()
+        stopElzicyForRadio()
         SleepTimerManager.getInstance().stopEndOfTrackPoller()
         SleepTimerManager.getInstance().setServiceActionListener(null)
         radioHeaderCheckExecutor.shutdown()
@@ -686,6 +712,7 @@ open class BaseMediaService : MediaLibraryService() {
     }
 
     private fun scheduleRadioHeaderChecks() {
+        if (Preferences.isElzicyConfigured()) return
         val player = mediaLibrarySession.player
         val currentItem = player.currentMediaItem ?: return
         val mediaType = currentItem.mediaMetadata.extras?.getString("type")
@@ -762,68 +789,96 @@ open class BaseMediaService : MediaLibraryService() {
     }
     
     private fun processStreamTitle(streamTitle: String, player: Player) {
+        updateRadioTrackMetadata(player, streamTitle)
+    }
+
+    private fun startElzicyForRadio() {
+        if (!Preferences.isElzicyConfigured() || elzicyAcquired) return
+        val client = ElzicyClient.getInstance()
+        client.addTrackUpdateListener(elzicyTrackUpdateListener)
+        client.acquire()
+        elzicyAcquired = true
+
+        val stationName = mediaLibrarySession.player.currentMediaItem
+            ?.mediaMetadata?.extras?.getString("stationName")
+        val currentTrack = client.getNowPlayingForStation(stationName)
+        if (!currentTrack.isNullOrBlank() && !stationName.isNullOrBlank()) {
+            applyElzicyTrackUpdate(stationName, currentTrack)
+        }
+    }
+
+    private fun stopElzicyForRadio() {
+        if (!elzicyAcquired) return
+        val client = ElzicyClient.getInstance()
+        client.removeTrackUpdateListener(elzicyTrackUpdateListener)
+        client.release()
+        elzicyAcquired = false
+    }
+
+    private fun applyElzicyTrackUpdate(stationName: String, trackTitle: String) {
+        val player = mediaLibrarySession.player
+        val currentItem = player.currentMediaItem ?: return
+        val extras = currentItem.mediaMetadata.extras
+        if (extras?.getString("type") != Constants.MEDIA_TYPE_RADIO) return
+
+        val currentStationName = extras.getString("stationName")
+            ?: currentItem.mediaMetadata.title?.toString()
+            ?: ""
+        if (currentStationName != stationName) return
+
+        updateRadioTrackMetadata(player, trackTitle)
+    }
+
+    private fun updateRadioTrackMetadata(player: Player, streamTitle: String) {
         // Parse "Artist - Title" format
         val parts = streamTitle.split(" - ", limit = 2)
         val artist = if (parts.size == 2) parts[0].trim().ifEmpty { null } else null
         val title = if (parts.size == 2) parts[1].trim().ifEmpty { null } else streamTitle.trim().ifEmpty { null }
-        
+
         if (artist.isNullOrBlank() && title.isNullOrBlank()) return
-        if (artist == lastRadioArtist && title == lastRadioTitle) return // Deduplicate
-        
+        if (artist == lastRadioArtist && title == lastRadioTitle) return
+
         lastRadioArtist = artist
         lastRadioTitle = title
-        
-        // Update on main thread
-        widgetUpdateHandler.post {
-            val currentItemNow = player.currentMediaItem ?: return@post
-            val currentIndex = player.currentMediaItemIndex
-            if (currentIndex == C.INDEX_UNSET) return@post
-            
-            val currentExtras = currentItemNow.mediaMetadata.extras
-            if (currentExtras?.getString("type") != Constants.MEDIA_TYPE_RADIO) return@post
-            
-            // Double-check we still don't have embedded metadata (might have arrived since check)
-            val hasEmbeddedMetadata = !currentItemNow.mediaMetadata.artist.isNullOrBlank() ||
-                    !currentItemNow.mediaMetadata.title.isNullOrBlank() ||
-                    (currentExtras != null && !currentExtras.getString("radioArtist").isNullOrBlank()) ||
-                    (currentExtras != null && !currentExtras.getString("radioTitle").isNullOrBlank())
-            if (hasEmbeddedMetadata) return@post
-            
-            val metadataBuilder = currentItemNow.mediaMetadata.buildUpon()
-            val newExtras = Bundle(currentExtras ?: Bundle())
-            
-            // Store individual values in extras for UI
-            artist?.let { newExtras.putString("radioArtist", it) }
-            title?.let { newExtras.putString("radioTitle", it) }
-            
-            // Get station name (preserve if already set)
-            val stationName = currentExtras?.getString("stationName")
-                ?: currentItemNow.mediaMetadata.title?.toString()
-                ?: ""
-            if (stationName.isNotBlank()) {
-                newExtras.putString("stationName", stationName)
-            }
-            
-            // Format for notification/player: Title = "Artist - Song", Artist = "Station Name"
-            val formattedTitle = when {
-                !artist.isNullOrBlank() && !title.isNullOrBlank() -> "$artist - $title"
-                !title.isNullOrBlank() -> title
-                !artist.isNullOrBlank() -> artist
-                else -> stationName
-            }
-            
-            metadataBuilder.setTitle(formattedTitle)
-            if (stationName.isNotBlank()) {
-                metadataBuilder.setArtist(stationName)
-            }
-            metadataBuilder.setExtras(newExtras)
-            
-            (player as? ExoPlayer)?.let { exo ->
-                exo.replaceMediaItem(currentIndex, currentItemNow.buildUpon()
-                    .setMediaMetadata(metadataBuilder.build())
-                    .build())
-                updateWidget(exo)
-            }
+
+        val currentItemNow = player.currentMediaItem ?: return
+        val currentIndex = player.currentMediaItemIndex
+        if (currentIndex == C.INDEX_UNSET) return
+
+        val currentExtras = currentItemNow.mediaMetadata.extras
+        if (currentExtras?.getString("type") != Constants.MEDIA_TYPE_RADIO) return
+
+        val metadataBuilder = currentItemNow.mediaMetadata.buildUpon()
+        val newExtras = Bundle(currentExtras ?: Bundle())
+
+        artist?.let { newExtras.putString("radioArtist", it) }
+        title?.let { newExtras.putString("radioTitle", it) }
+
+        val stationName = currentExtras.getString("stationName")
+            ?: currentItemNow.mediaMetadata.title?.toString()
+            ?: ""
+        if (stationName.isNotBlank()) {
+            newExtras.putString("stationName", stationName)
+        }
+
+        val formattedTitle = when {
+            !artist.isNullOrBlank() && !title.isNullOrBlank() -> "$artist - $title"
+            !title.isNullOrBlank() -> title
+            !artist.isNullOrBlank() -> artist
+            else -> stationName
+        }
+
+        metadataBuilder.setTitle(formattedTitle)
+        if (stationName.isNotBlank()) {
+            metadataBuilder.setArtist(stationName)
+        }
+        metadataBuilder.setExtras(newExtras)
+
+        (player as? ExoPlayer)?.let { exo ->
+            exo.replaceMediaItem(currentIndex, currentItemNow.buildUpon()
+                .setMediaMetadata(metadataBuilder.build())
+                .build())
+            updateWidget(exo)
         }
     }
 

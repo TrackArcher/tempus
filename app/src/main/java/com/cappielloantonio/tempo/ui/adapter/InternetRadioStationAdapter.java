@@ -22,12 +22,17 @@ import com.cappielloantonio.tempo.util.RadioCoverArtDownloader;
 import java.io.File;
 import java.util.Collections;
 import java.util.List;
+import java.util.Map;
 
 @UnstableApi
 public class InternetRadioStationAdapter extends RecyclerView.Adapter<InternetRadioStationAdapter.ViewHolder> {
+    private static final Object PAYLOAD_NOW_PLAYING = new Object();
+
     private final ClickCallback click;
 
     private List<InternetRadioStation> internetRadioStations;
+    private Map<String, String> nowPlayingByStation = Collections.emptyMap();
+    private boolean showNowPlaying;
 
     public InternetRadioStationAdapter(ClickCallback click) {
         this.click = click;
@@ -46,7 +51,9 @@ public class InternetRadioStationAdapter extends RecyclerView.Adapter<InternetRa
         InternetRadioStation internetRadioStation = internetRadioStations.get(position);
 
         holder.item.internetRadioStationTitleTextView.setText(internetRadioStation.getName());
-        holder.item.internetRadioStationSubtitleTextView.setText(internetRadioStation.getStreamUrl());
+        holder.item.internetRadioStationTitleTextView.setSelected(true);
+
+        bindSubtitle(holder, internetRadioStation);
 
         if (internetRadioStation.getId() != null && internetRadioStation.getId().startsWith("local_")) {
             holder.item.internetRadioStationLocalBadge.setVisibility(android.view.View.VISIBLE);
@@ -55,6 +62,37 @@ public class InternetRadioStationAdapter extends RecyclerView.Adapter<InternetRa
         }
 
         loadCoverArt(holder, internetRadioStation);
+    }
+
+    @Override
+    public void onBindViewHolder(@NonNull ViewHolder holder, int position, @NonNull List<Object> payloads) {
+        if (payloads.isEmpty()) {
+            onBindViewHolder(holder, position);
+            return;
+        }
+
+        bindSubtitle(holder, internetRadioStations.get(position));
+    }
+
+    private void bindSubtitle(ViewHolder holder, InternetRadioStation internetRadioStation) {
+        CharSequence subtitle;
+        if (showNowPlaying) {
+            String nowPlaying = nowPlayingByStation.get(internetRadioStation.getName());
+            if (nowPlaying != null && !nowPlaying.isEmpty()) {
+                subtitle = holder.itemView.getContext().getString(R.string.radio_station_now_playing, nowPlaying);
+            } else {
+                subtitle = holder.itemView.getContext().getString(
+                        R.string.radio_station_now_playing,
+                        holder.itemView.getContext().getString(R.string.radio_station_now_playing_unknown)
+                );
+            }
+        } else {
+            subtitle = internetRadioStation.getStreamUrl();
+        }
+
+        holder.item.internetRadioStationSubtitleTextView.setText(subtitle);
+        holder.item.internetRadioStationSubtitleTextView.setSelected(false);
+        holder.item.internetRadioStationSubtitleTextView.setSelected(true);
     }
 
     private void loadCoverArt(ViewHolder holder, InternetRadioStation station) {
@@ -104,6 +142,15 @@ public class InternetRadioStationAdapter extends RecyclerView.Adapter<InternetRa
     public void setItems(List<InternetRadioStation> internetRadioStations) {
         this.internetRadioStations = internetRadioStations;
         notifyDataSetChanged();
+    }
+
+    public void setNowPlayingTracks(Map<String, String> nowPlayingByStation, boolean showNowPlaying) {
+        this.nowPlayingByStation = nowPlayingByStation != null ? nowPlayingByStation : Collections.emptyMap();
+        this.showNowPlaying = showNowPlaying;
+        if (getItemCount() == 0) {
+            return;
+        }
+        notifyItemRangeChanged(0, getItemCount(), PAYLOAD_NOW_PLAYING);
     }
 
     public InternetRadioStation getItem(int position) {

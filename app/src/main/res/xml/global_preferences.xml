@@ -124,6 +124,22 @@
             android:summary="@string/settings_radio_summary"
             android:key="radio_section_visibility" />
 
+        <EditTextPreference
+            android:key="elzicy_api_base_url"
+            android:title="@string/settings_elzicy_base_url"
+            android:summary="@string/settings_elzicy_base_url_summary"
+            android:dialogTitle="@string/settings_elzicy_base_url_dialog"
+            android:inputType="textUri"
+            android:singleLine="true" />
+
+        <EditTextPreference
+            android:key="elzicy_api_token"
+            android:title="@string/settings_elzicy_token"
+            android:summary="@string/settings_elzicy_token_summary"
+            android:dialogTitle="@string/settings_elzicy_token_dialog"
+            android:inputType="textPassword"
+            android:singleLine="true" />
+
         <SwitchPreference
             android:title="@string/settings_auto_download_lyrics"
             android:defaultValue="false"

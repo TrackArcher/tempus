@@ -151,6 +151,7 @@ public class SettingsContainerFragment extends PreferenceFragmentCompat {
         setAppLanguage();
         setVersion();
         setNetorkPingTimeoutBase();
+        setElzicyPreferences();
 
         actionLogout();
         actionScan();
@@ -402,6 +403,24 @@ public class SettingsContainerFragment extends PreferenceFragmentCompat {
             } else {
                 directory.setVisible(false);
             }
+        }
+    }
+
+    private void setElzicyPreferences() {
+        EditTextPreference baseUrl = findPreference("elzicy_api_base_url");
+        if (baseUrl != null) {
+            baseUrl.setSummaryProvider(EditTextPreference.SimpleSummaryProvider.getInstance());
+        }
+
+        EditTextPreference token = findPreference("elzicy_api_token");
+        if (token != null) {
+            token.setSummaryProvider(preference -> {
+                String value = token.getText();
+                if (value == null || value.isEmpty()) {
+                    return getString(R.string.settings_elzicy_token_summary);
+                }
+                return "********";
+            });
         }
     }
 

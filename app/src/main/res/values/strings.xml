@@ -467,6 +467,17 @@
 
     <string name="settings_radio">Show radio</string>
     <string name="settings_radio_summary">If enabled, show the radio section. Restart the app for it to take full effect.</string>
+    <string name="settings_elzicy_title">Internet radio metadata (Elzicy)</string>
+    <string name="settings_elzicy_base_url">Elzicy API base URL</string>
+    <string name="settings_elzicy_base_url_summary">Base URL of your Elzicy server, without /api/stream-history (e.g. api.example.com or http://192.168.1.10:8999). https:// is added automatically for hostnames.</string>
+    <string name="settings_elzicy_base_url_dialog">Elzicy API base URL</string>
+    <string name="settings_elzicy_token">Elzicy API token</string>
+    <string name="settings_elzicy_token_summary">X-App-Token value configured on your Elzicy server</string>
+    <string name="settings_elzicy_token_dialog">Elzicy API token</string>
+    <string name="player_radio_history_empty">No track history yet for this station.</string>
+    <string name="player_radio_history_title">Recently played</string>
+    <string name="radio_station_now_playing">Now playing: %1$s</string>
+    <string name="radio_station_now_playing_unknown">Nothing playing</string>
     <string name="settings_enable_drawer_on_landscape">Enable drawer on portrait</string>
     <string name="settings_enable_drawer_on_landscape_summary">Unlocks the lateral landscape menu drawer on portrait.</string>
     <string name="settings_hide_bottom_navbar_on_portrait">Hide bottom navbar on portrait [Experimental]</string>

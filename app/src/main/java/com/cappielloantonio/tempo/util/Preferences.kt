@@ -54,6 +54,8 @@ object Preferences {
     private const val ROUNDED_CORNER_SIZE = "rounded_corner_size"
     private const val PODCAST_SECTION_VISIBILITY = "podcast_section_visibility"
     private const val RADIO_SECTION_VISIBILITY = "radio_section_visibility"
+    private const val ELZICY_API_BASE_URL = "elzicy_api_base_url"
+    private const val ELZICY_API_TOKEN = "elzicy_api_token"
     private const val AUTO_DOWNLOAD_LYRICS = "auto_download_lyrics"
     private const val MUSIC_DIRECTORY_SECTION_VISIBILITY = "music_directory_section_visibility"
     private const val REPLAY_GAIN_MODE = "replay_gain_mode"
@@ -956,5 +958,30 @@ object Preferences {
     @JvmStatic
     fun setDarkThemeStyle(style: String) {
         App.getInstance().preferences.edit().putString(DARK_THEME_STYLE, style).apply()
+    }
+
+    @JvmStatic
+    fun getElzicyApiBaseUrl(): String? {
+        return App.getInstance().preferences.getString(ELZICY_API_BASE_URL, null)
+    }
+
+    @JvmStatic
+    fun setElzicyApiBaseUrl(url: String?) {
+        App.getInstance().preferences.edit().putString(ELZICY_API_BASE_URL, url).apply()
+    }
+
+    @JvmStatic
+    fun getElzicyApiToken(): String? {
+        return App.getInstance().preferences.getString(ELZICY_API_TOKEN, null)
+    }
+
+    @JvmStatic
+    fun setElzicyApiToken(token: String?) {
+        App.getInstance().preferences.edit().putString(ELZICY_API_TOKEN, token).apply()
+    }
+
+    @JvmStatic
+    fun isElzicyConfigured(): Boolean {
+        return !getElzicyApiBaseUrl().isNullOrBlank() && !getElzicyApiToken().isNullOrBlank()
     }
 }

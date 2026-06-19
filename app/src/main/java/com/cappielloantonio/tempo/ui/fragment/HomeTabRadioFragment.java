@@ -17,6 +17,7 @@ import androidx.media3.session.SessionToken;
 import androidx.recyclerview.widget.LinearLayoutManager;
 
 import com.cappielloantonio.tempo.databinding.FragmentHomeTabRadioBinding;
+import com.cappielloantonio.tempo.elzicy.ElzicyClient;
 import com.cappielloantonio.tempo.interfaces.ClickCallback;
 import com.cappielloantonio.tempo.interfaces.RadioCallback;
 import com.cappielloantonio.tempo.service.MediaManager;
@@ -66,10 +67,23 @@ public class HomeTabRadioFragment extends Fragment implements ClickCallback, Rad
         super.onStart();
 
         initializeMediaBrowser();
+        if (Preferences.isElzicyConfigured()) {
+            ElzicyClient.getInstance().acquire();
+            ElzicyClient.getInstance().getNowPlaying().observe(getViewLifecycleOwner(), nowPlaying -> {
+                if (internetRadioStationAdapter != null) {
+                    internetRadioStationAdapter.setNowPlayingTracks(nowPlaying, true);
+                }
+            });
+        } else if (internetRadioStationAdapter != null) {
+            internetRadioStationAdapter.setNowPlayingTracks(null, false);
+        }
     }
 
     @Override
     public void onStop() {
+        if (Preferences.isElzicyConfigured()) {
+            ElzicyClient.getInstance().release();
+        }
         releaseMediaBrowser();
         super.onStop();
     }

@@ -28,9 +28,11 @@ import androidx.media3.session.SessionToken;
 
 import com.cappielloantonio.tempo.R;
 import com.cappielloantonio.tempo.databinding.InnerFragmentPlayerLyricsBinding;
+import com.cappielloantonio.tempo.elzicy.ElzicyClient;
 import com.cappielloantonio.tempo.service.MediaService;
 import com.cappielloantonio.tempo.subsonic.models.Line;
 import com.cappielloantonio.tempo.subsonic.models.LyricsList;
+import com.cappielloantonio.tempo.util.Constants;
 import com.cappielloantonio.tempo.util.MusicUtil;
 import com.cappielloantonio.tempo.util.Preferences;
 import com.cappielloantonio.tempo.viewmodel.PlayerBottomSheetViewModel;
@@ -38,6 +40,7 @@ import com.google.common.util.concurrent.ListenableFuture;
 import com.google.android.material.button.MaterialButton;
 import com.google.common.util.concurrent.MoreExecutors;
 
+import java.util.Collections;
 import java.util.List;
 
 
@@ -55,6 +58,8 @@ public class PlayerLyricsFragment extends Fragment {
     private LyricsList currentLyricsList;
     private Integer lastLineIdx;
     private String currentDescription;
+    private String currentRadioStationName;
+    private boolean showingRadioHistory;
 
     @Override
     public View onCreateView(@NonNull LayoutInflater inflater, ViewGroup container, Bundle savedInstanceState) {
@@ -74,6 +79,7 @@ public class PlayerLyricsFragment extends Fragment {
 
         initPanelContent();
         observeDownloadState();
+        observeRadioHistory();
     }
 
     @Override
@@ -113,6 +119,8 @@ public class PlayerLyricsFragment extends Fragment {
         currentLyricsList = null;
         currentDescription = null;
         lastLineIdx = null;
+        currentRadioStationName = null;
+        showingRadioHistory = false;
     }
 
     private void initOverlay() {
@@ -152,10 +160,100 @@ public class PlayerLyricsFragment extends Fragment {
             try {
                 mediaBrowser = mediaBrowserListenableFuture.get();
                 defineProgressHandler();
+                mediaBrowser.addListener(new androidx.media3.common.Player.Listener() {
+                    @Override
+                    public void onMediaMetadataChanged(androidx.media3.common.MediaMetadata mediaMetadata) {
+                        refreshRadioMode();
+                    }
+                });
+                refreshRadioMode();
             } catch (Exception e) {
                 e.printStackTrace();
             }
         }, MoreExecutors.directExecutor());
+    }
+
+    private void observeRadioHistory() {
+        ElzicyClient.getInstance().getTrackHistory().observe(getViewLifecycleOwner(), history -> {
+            if (showingRadioHistory) {
+                updateRadioHistoryPanel(history);
+            }
+        });
+    }
+
+    private void refreshRadioMode() {
+        if (bind == null || mediaBrowser == null) {
+            return;
+        }
+
+        boolean shouldShowRadioHistory = Preferences.isElzicyConfigured()
+                && isPlayingInternetRadio(mediaBrowser.getMediaMetadata());
+
+        if (shouldShowRadioHistory) {
+            String stationName = getRadioStationName(mediaBrowser.getMediaMetadata());
+            if (stationName != null && !stationName.equals(currentRadioStationName)) {
+                currentRadioStationName = stationName;
+            }
+            showingRadioHistory = true;
+            releaseHandler();
+            updateRadioHistoryPanel(ElzicyClient.getInstance().getTrackHistory().getValue());
+            return;
+        }
+
+        showingRadioHistory = false;
+        currentRadioStationName = null;
+        updatePanelContent();
+    }
+
+    private boolean isPlayingInternetRadio(androidx.media3.common.MediaMetadata mediaMetadata) {
+        return mediaMetadata.extras != null
+                && Constants.MEDIA_TYPE_RADIO.equals(mediaMetadata.extras.getString("type"));
+    }
+
+    private String getRadioStationName(androidx.media3.common.MediaMetadata mediaMetadata) {
+        if (mediaMetadata.extras == null) {
+            return mediaMetadata.artist != null ? String.valueOf(mediaMetadata.artist) : null;
+        }
+        String stationName = mediaMetadata.extras.getString("stationName");
+        if (stationName != null && !stationName.trim().isEmpty()) {
+            return stationName;
+        }
+        return mediaMetadata.artist != null ? String.valueOf(mediaMetadata.artist) : null;
+    }
+
+    private void updateRadioHistoryPanel(java.util.Map<String, java.util.List<String>> history) {
+        if (bind == null || !showingRadioHistory) {
+            return;
+        }
+
+        List<String> tracks = history != null && currentRadioStationName != null
+                ? history.getOrDefault(currentRadioStationName, Collections.emptyList())
+                : Collections.emptyList();
+
+        bind.nowPlayingSongLyricsSrollView.smoothScrollTo(0, 0);
+        bind.syncLyricsTapButton.setVisibility(View.GONE);
+        bind.downloadLyricsButton.setVisibility(View.GONE);
+        bind.downloadLyricsButton.setEnabled(false);
+
+        if (tracks.isEmpty()) {
+            bind.nowPlayingSongLyricsTextView.setVisibility(View.GONE);
+            bind.emptyDescriptionImageView.setVisibility(View.VISIBLE);
+            bind.titleEmptyDescriptionLabel.setVisibility(View.VISIBLE);
+            bind.titleEmptyDescriptionLabel.setText(R.string.player_radio_history_empty);
+            return;
+        }
+
+        StringBuilder historyBuilder = new StringBuilder();
+        historyBuilder.append(getString(R.string.player_radio_history_title)).append("\n\n");
+        for (int i = tracks.size() - 1; i >= 0; i--) {
+            historyBuilder.append(tracks.get(i).trim()).append("\n\n");
+        }
+
+        bind.nowPlayingSongLyricsTextView.setText(historyBuilder.toString().trim());
+        bind.nowPlayingSongLyricsTextView.setMovementMethod(null);
+        bind.nowPlayingSongLyricsTextView.setVisibility(View.VISIBLE);
+        bind.emptyDescriptionImageView.setVisibility(View.GONE);
+        bind.titleEmptyDescriptionLabel.setVisibility(View.GONE);
     }
 
     private void initPanelContent() {
@@ -196,6 +294,11 @@ public class PlayerLyricsFragment extends Fragment {
             return;
         }
 
+        if (showingRadioHistory) {
+            updateRadioHistoryPanel(ElzicyClient.getInstance().getTrackHistory().getValue());
+            return;
+        }
+
         bind.nowPlayingSongLyricsSrollView.smoothScrollTo(0, 0);
 
         if (hasStructuredLyrics(currentLyricsList)) {
@@ -226,6 +329,7 @@ public class PlayerLyricsFragment extends Fragment {
             bind.nowPlayingSongLyricsTextView.setVisibility(View.GONE);
             bind.emptyDescriptionImageView.setVisibility(View.VISIBLE);
             bind.titleEmptyDescriptionLabel.setVisibility(View.VISIBLE);
+            bind.titleEmptyDescriptionLabel.setText(R.string.description_empty_title);
             bind.syncLyricsTapButton.setVisibility(View.GONE);
             bind.downloadLyricsButton.setVisibility(View.GONE);
             bind.downloadLyricsButton.setEnabled(false);
